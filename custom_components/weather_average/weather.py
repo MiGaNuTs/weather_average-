@@ -37,6 +37,8 @@ class WeatherAverageEntity(WeatherEntity):
         self._attr_native_temperature_unit = "°C"
         self._attr_native_pressure_unit = "hPa"
         self._attr_native_wind_speed_unit = "km/h"
+        self._attr_native_wind_gust_speed_unit = "km/h"
+        self._attr_native_visibility_unit = "km"
         self._update()
 
     async def async_added_to_hass(self) -> None:
@@ -69,6 +71,10 @@ class WeatherAverageEntity(WeatherEntity):
         humidities = []
         pressures = []
         wind_speeds = []
+        wind_gust_speeds = []
+        cloud_coverages = []
+        dew_points = []
+        visibilities = []
 
         available_count = 0
 
@@ -84,6 +90,10 @@ class WeatherAverageEntity(WeatherEntity):
             humidities.append(attrs.get("humidity"))
             pressures.append(attrs.get("pressure"))
             wind_speeds.append(attrs.get("wind_speed"))
+            wind_gust_speeds.append(attrs.get("wind_gust_speed"))
+            cloud_coverages.append(attrs.get("cloud_coverage"))
+            dew_points.append(attrs.get("dew_point"))
+            visibilities.append(attrs.get("visibility"))
 
         if available_count == 0:
             _LOGGER.warning("No weather sources available, setting state to unavailable.")
@@ -95,14 +105,23 @@ class WeatherAverageEntity(WeatherEntity):
         self._attr_humidity = self._avg(humidities)
         self._attr_native_pressure = self._avg(pressures)
         self._attr_native_wind_speed = self._avg(wind_speeds)
+        self._attr_native_wind_gust_speed = self._avg(wind_gust_speeds)
+        self._attr_cloud_coverage = self._avg(cloud_coverages)
+        self._attr_dew_point = self._avg(dew_points)
+        self._attr_native_visibility = self._avg(visibilities)
 
         _LOGGER.debug(
-            "Updated: temp=%s, humidity=%s, pressure=%s, wind_speed=%s "
+            "Updated: temp=%s, humidity=%s, pressure=%s, wind_speed=%s, "
+            "wind_gust=%s, cloud=%s, dew=%s, visibility=%s "
             "(%d/%d sources available)",
             self._attr_native_temperature,
             self._attr_humidity,
             self._attr_native_pressure,
             self._attr_native_wind_speed,
+            self._attr_native_wind_gust_speed,
+            self._attr_cloud_coverage,
+            self._attr_dew_point,
+            self._attr_native_visibility,
             available_count,
             len(self._sources),
         )

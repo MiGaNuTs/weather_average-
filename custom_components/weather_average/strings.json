@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurer Weather Average",
+        "description": "Sélectionnez les sources météo à agréger.",
+        "data": {
+          "name": "Nom de l'entité",
+          "sources": "Sources météo"
+        }
+      }
+    },
+    "error": {
+      "min_two_sources": "Sélectionnez au moins 2 sources."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Modifier les sources",
+        "data": {
+          "sources": "Sources météo"
+        }
+      }
+    },
+    "error": {
+      "min_two_sources": "Sélectionnez au moins 2 sources."
+    }
+  }
+}
