@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import math
+import statistics
 from homeassistant.components.weather import WeatherEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -88,12 +89,12 @@ class WeatherAverageEntity(WeatherEntity):
         self.async_write_ha_state()
 
     @staticmethod
-    def _avg(values: list) -> float | None:
-        """Compute average ignoring None values."""
+    def _median(values: list) -> float | None:
+        """Compute median ignoring None values. More robust than average against outliers."""
         clean = [v for v in values if v is not None]
         if not clean:
             return None
-        return round(sum(clean) / len(clean), 1)
+        return round(statistics.median(clean), 1)
 
     @staticmethod
     def _circular_avg(bearings: list) -> float | None:
@@ -178,14 +179,14 @@ class WeatherAverageEntity(WeatherEntity):
             return
 
         self._attr_available = True
-        self._attr_native_temperature = self._avg(temps)
-        self._attr_humidity = self._avg(humidities)
-        self._attr_native_pressure = self._avg(pressures)
-        self._attr_native_wind_speed = self._avg(wind_speeds)
-        self._attr_native_wind_gust_speed = self._avg(wind_gust_speeds)
+        self._attr_native_temperature = self._median(temps)
+        self._attr_humidity = self._median(humidities)
+        self._attr_native_pressure = self._median(pressures)
+        self._attr_native_wind_speed = self._median(wind_speeds)
+        self._attr_native_wind_gust_speed = self._median(wind_gust_speeds)
         self._attr_wind_bearing = self._circular_avg(wind_bearings)
-        self._attr_cloud_coverage = self._avg(cloud_coverages)
-        self._attr_native_visibility = self._avg(visibilities)
+        self._attr_cloud_coverage = self._median(cloud_coverages)
+        self._attr_native_visibility = self._median(visibilities)
         self._attr_condition = self._majority_vote(conditions)
 
         self._attr_native_dew_point = self._compute_dew_point(
