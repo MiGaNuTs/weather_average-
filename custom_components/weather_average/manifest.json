@@ -1,0 +1,10 @@
+{
+  "domain": "weather_average",
+  "name": "Weather Average",
+  "version": "0.1.0",
+  "config_flow": true,
+  "dependencies": [],
+  "requirements": [],
+  "codeowners": ["@MiGaNuTs"],
+  "iot_class": "local_push"
+}
