@@ -48,6 +48,11 @@ class WeatherAverageEntity(WeatherEntity):
     """Aggregates multiple weather entities into a single averaged entity."""
 
     _attr_has_entity_name = True
+    _attr_native_temperature_unit = "°C"
+    _attr_native_pressure_unit = "hPa"
+    _attr_native_wind_speed_unit = "km/h"
+    _attr_native_wind_gust_speed_unit = "km/h"
+    _attr_native_visibility_unit = "km"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, sources: list[str]):
         self.hass = hass
@@ -55,11 +60,16 @@ class WeatherAverageEntity(WeatherEntity):
         self._sources = sources
         self._attr_unique_id = entry.entry_id
         self._attr_name = entry.title
-        self._attr_native_temperature_unit = "°C"
-        self._attr_native_pressure_unit = "hPa"
-        self._attr_native_wind_speed_unit = "km/h"
-        self._attr_native_wind_gust_speed_unit = "km/h"
-        self._attr_native_visibility_unit = "km"
+        self._attr_condition = None
+        self._attr_native_temperature = None
+        self._attr_humidity = None
+        self._attr_native_pressure = None
+        self._attr_native_wind_speed = None
+        self._attr_native_wind_gust_speed = None
+        self._attr_cloud_coverage = None
+        self._attr_native_visibility = None
+        self._attr_native_dew_point = None
+        self._attr_native_apparent_temperature = None
         self._update()
 
     async def async_added_to_hass(self) -> None:
@@ -92,24 +102,20 @@ class WeatherAverageEntity(WeatherEntity):
         clean = [c for c in conditions if c is not None]
         if not clean:
             return None
-        # Compter les occurrences
         counts: dict[str, int] = {}
         for c in clean:
             counts[c] = counts.get(c, 0) + 1
         max_count = max(counts.values())
-        # Garder les candidats à égalité
         candidates = [c for c, n in counts.items() if n == max_count]
         if len(candidates) == 1:
             return candidates[0]
-        # Tiebreaker : prendre le plus optimiste (plus tôt dans CONDITION_PRIORITY)
         for condition in CONDITION_PRIORITY:
             if condition in candidates:
                 return condition
-        # Fallback si condition inconnue
         return candidates[0]
 
     @staticmethod
-    def _compute_dew_point(temp: float, humidity: float) -> float | None:
+    def _compute_dew_point(temp: float | None, humidity: float | None) -> float | None:
         """Compute dew point from temperature and humidity using Magnus formula."""
         if temp is None or humidity is None or humidity <= 0:
             return None
@@ -117,7 +123,7 @@ class WeatherAverageEntity(WeatherEntity):
         return round(237.7 * gamma / (7.5 - gamma), 1)
 
     @staticmethod
-    def _compute_apparent_temp(temp: float, dew_point: float) -> float | None:
+    def _compute_apparent_temp(temp: float | None, dew_point: float | None) -> float | None:
         """Compute apparent temperature (Steadman) from temp and dew point."""
         if temp is None or dew_point is None:
             return None
@@ -169,16 +175,14 @@ class WeatherAverageEntity(WeatherEntity):
         self._attr_native_visibility = self._avg(visibilities)
         self._attr_condition = self._majority_vote(conditions)
 
-        # Dew point calculé à partir des moyennes de temp et humidity
-        self._attr_dew_point = self._compute_dew_point(
+        # Dew point et température ressentie calculés à partir des moyennes
+        self._attr_native_dew_point = self._compute_dew_point(
             self._attr_native_temperature,
             self._attr_humidity,
         )
-
-        # Température ressentie (Steadman) à partir de nos dew_point et temp moyens
-        self._attr_apparent_temperature = self._compute_apparent_temp(
+        self._attr_native_apparent_temperature = self._compute_apparent_temp(
             self._attr_native_temperature,
-            self._attr_dew_point,
+            self._attr_native_dew_point,
         )
 
         _LOGGER.debug(
@@ -186,8 +190,8 @@ class WeatherAverageEntity(WeatherEntity):
             "wind=%s, gust=%s, cloud=%s, visibility=%s, condition=%s "
             "(%d/%d sources available)",
             self._attr_native_temperature,
-            self._attr_apparent_temperature,
-            self._attr_dew_point,
+            self._attr_native_apparent_temperature,
+            self._attr_native_dew_point,
             self._attr_humidity,
             self._attr_native_pressure,
             self._attr_native_wind_speed,
