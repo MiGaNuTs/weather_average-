@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from homeassistant.components.weather import WeatherEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
@@ -11,6 +12,26 @@ from homeassistant.helpers.event import async_track_state_change_event
 from . import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+# Ordre de priorité pour le vote majoritaire en cas d'égalité
+# Du plus optimiste au plus pessimiste
+CONDITION_PRIORITY = [
+    "sunny",
+    "clear-night",
+    "partlycloudy",
+    "windy-variant",
+    "windy",
+    "fog",
+    "cloudy",
+    "hail",
+    "snowy",
+    "snowy-rainy",
+    "rainy",
+    "pouring",
+    "lightning",
+    "lightning-rainy",
+    "exceptional",
+]
 
 
 async def async_setup_entry(
@@ -65,6 +86,44 @@ class WeatherAverageEntity(WeatherEntity):
             return None
         return round(sum(clean) / len(clean), 1)
 
+    @staticmethod
+    def _majority_vote(conditions: list[str]) -> str | None:
+        """Return the most frequent condition, using CONDITION_PRIORITY as tiebreaker."""
+        clean = [c for c in conditions if c is not None]
+        if not clean:
+            return None
+        # Compter les occurrences
+        counts: dict[str, int] = {}
+        for c in clean:
+            counts[c] = counts.get(c, 0) + 1
+        max_count = max(counts.values())
+        # Garder les candidats à égalité
+        candidates = [c for c, n in counts.items() if n == max_count]
+        if len(candidates) == 1:
+            return candidates[0]
+        # Tiebreaker : prendre le plus optimiste (plus tôt dans CONDITION_PRIORITY)
+        for condition in CONDITION_PRIORITY:
+            if condition in candidates:
+                return condition
+        # Fallback si condition inconnue
+        return candidates[0]
+
+    @staticmethod
+    def _compute_dew_point(temp: float, humidity: float) -> float | None:
+        """Compute dew point from temperature and humidity using Magnus formula."""
+        if temp is None or humidity is None or humidity <= 0:
+            return None
+        gamma = math.log(humidity / 100) + (7.5 * temp) / (237.7 + temp)
+        return round(237.7 * gamma / (7.5 - gamma), 1)
+
+    @staticmethod
+    def _compute_apparent_temp(temp: float, dew_point: float) -> float | None:
+        """Compute apparent temperature (Steadman) from temp and dew point."""
+        if temp is None or dew_point is None:
+            return None
+        e = 6.11 * (10 ** ((7.5 * dew_point) / (237.7 + dew_point)))
+        return round(temp + 0.5555 * (e - 10), 1)
+
     def _update(self) -> None:
         """Recompute averaged values from all available sources."""
         temps = []
@@ -73,8 +132,8 @@ class WeatherAverageEntity(WeatherEntity):
         wind_speeds = []
         wind_gust_speeds = []
         cloud_coverages = []
-        dew_points = []
         visibilities = []
+        conditions = []
 
         available_count = 0
 
@@ -92,8 +151,8 @@ class WeatherAverageEntity(WeatherEntity):
             wind_speeds.append(attrs.get("wind_speed"))
             wind_gust_speeds.append(attrs.get("wind_gust_speed"))
             cloud_coverages.append(attrs.get("cloud_coverage"))
-            dew_points.append(attrs.get("dew_point"))
             visibilities.append(attrs.get("visibility"))
+            conditions.append(state.state if state.state in CONDITION_PRIORITY else None)
 
         if available_count == 0:
             _LOGGER.warning("No weather sources available, setting state to unavailable.")
@@ -107,21 +166,35 @@ class WeatherAverageEntity(WeatherEntity):
         self._attr_native_wind_speed = self._avg(wind_speeds)
         self._attr_native_wind_gust_speed = self._avg(wind_gust_speeds)
         self._attr_cloud_coverage = self._avg(cloud_coverages)
-        self._attr_dew_point = self._avg(dew_points)
         self._attr_native_visibility = self._avg(visibilities)
+        self._attr_condition = self._majority_vote(conditions)
+
+        # Dew point calculé à partir des moyennes de temp et humidity
+        self._attr_dew_point = self._compute_dew_point(
+            self._attr_native_temperature,
+            self._attr_humidity,
+        )
+
+        # Température ressentie (Steadman) à partir de nos dew_point et temp moyens
+        self._attr_apparent_temperature = self._compute_apparent_temp(
+            self._attr_native_temperature,
+            self._attr_dew_point,
+        )
 
         _LOGGER.debug(
-            "Updated: temp=%s, humidity=%s, pressure=%s, wind_speed=%s, "
-            "wind_gust=%s, cloud=%s, dew=%s, visibility=%s "
+            "Updated: temp=%s, apparent=%s, dew=%s, humidity=%s, pressure=%s, "
+            "wind=%s, gust=%s, cloud=%s, visibility=%s, condition=%s "
             "(%d/%d sources available)",
             self._attr_native_temperature,
+            self._attr_apparent_temperature,
+            self._attr_dew_point,
             self._attr_humidity,
             self._attr_native_pressure,
             self._attr_native_wind_speed,
             self._attr_native_wind_gust_speed,
             self._attr_cloud_coverage,
-            self._attr_dew_point,
             self._attr_native_visibility,
+            self._attr_condition,
             available_count,
             len(self._sources),
         )
