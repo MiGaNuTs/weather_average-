@@ -13,8 +13,6 @@ from . import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
 
-# Ordre de priorité pour le vote majoritaire en cas d'égalité
-# Du plus optimiste au plus pessimiste
 CONDITION_PRIORITY = [
     "sunny",
     "clear-night",
@@ -66,6 +64,7 @@ class WeatherAverageEntity(WeatherEntity):
         self._attr_native_pressure = None
         self._attr_native_wind_speed = None
         self._attr_native_wind_gust_speed = None
+        self._attr_wind_bearing = None
         self._attr_cloud_coverage = None
         self._attr_native_visibility = None
         self._attr_native_dew_point = None
@@ -90,11 +89,21 @@ class WeatherAverageEntity(WeatherEntity):
 
     @staticmethod
     def _avg(values: list) -> float | None:
-        """Compute average ignoring None values. Returns None if no valid data."""
+        """Compute average ignoring None values."""
         clean = [v for v in values if v is not None]
         if not clean:
             return None
         return round(sum(clean) / len(clean), 1)
+
+    @staticmethod
+    def _circular_avg(bearings: list) -> float | None:
+        """Compute circular average of angles in degrees, ignoring None values."""
+        clean = [b for b in bearings if b is not None]
+        if not clean:
+            return None
+        sin_avg = sum(math.sin(math.radians(b)) for b in clean) / len(clean)
+        cos_avg = sum(math.cos(math.radians(b)) for b in clean) / len(clean)
+        return round(math.degrees(math.atan2(sin_avg, cos_avg)) % 360, 1)
 
     @staticmethod
     def _majority_vote(conditions: list[str]) -> str | None:
@@ -137,6 +146,7 @@ class WeatherAverageEntity(WeatherEntity):
         pressures = []
         wind_speeds = []
         wind_gust_speeds = []
+        wind_bearings = []
         cloud_coverages = []
         visibilities = []
         conditions = []
@@ -158,6 +168,8 @@ class WeatherAverageEntity(WeatherEntity):
             wind_gust_speeds.append(attrs.get("wind_gust_speed"))
             cloud_coverages.append(attrs.get("cloud_coverage"))
             visibilities.append(attrs.get("visibility"))
+            bearing = attrs.get("wind_bearing")
+            wind_bearings.append(float(bearing) if bearing is not None else None)
             conditions.append(state.state if state.state in CONDITION_PRIORITY else None)
 
         if available_count == 0:
@@ -171,11 +183,11 @@ class WeatherAverageEntity(WeatherEntity):
         self._attr_native_pressure = self._avg(pressures)
         self._attr_native_wind_speed = self._avg(wind_speeds)
         self._attr_native_wind_gust_speed = self._avg(wind_gust_speeds)
+        self._attr_wind_bearing = self._circular_avg(wind_bearings)
         self._attr_cloud_coverage = self._avg(cloud_coverages)
         self._attr_native_visibility = self._avg(visibilities)
         self._attr_condition = self._majority_vote(conditions)
 
-        # Dew point et température ressentie calculés à partir des moyennes
         self._attr_native_dew_point = self._compute_dew_point(
             self._attr_native_temperature,
             self._attr_humidity,
@@ -187,7 +199,7 @@ class WeatherAverageEntity(WeatherEntity):
 
         _LOGGER.debug(
             "Updated: temp=%s, apparent=%s, dew=%s, humidity=%s, pressure=%s, "
-            "wind=%s, gust=%s, cloud=%s, visibility=%s, condition=%s "
+            "wind=%s, bearing=%s, gust=%s, cloud=%s, visibility=%s, condition=%s "
             "(%d/%d sources available)",
             self._attr_native_temperature,
             self._attr_native_apparent_temperature,
@@ -195,6 +207,7 @@ class WeatherAverageEntity(WeatherEntity):
             self._attr_humidity,
             self._attr_native_pressure,
             self._attr_native_wind_speed,
+            self._attr_wind_bearing,
             self._attr_native_wind_gust_speed,
             self._attr_cloud_coverage,
             self._attr_native_visibility,
