@@ -1,0 +1,5 @@
+{
+  "name": "Weather Average",
+  "description": "Aggregates multiple weather entities into a single averaged weather entity.",
+  "render_readme": true
+}
