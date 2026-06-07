@@ -6,7 +6,7 @@ import math
 import statistics
 from datetime import timedelta
 
-from homeassistant.components.weather import WeatherEntity, Forecast
+from homeassistant.components.weather import WeatherEntity, Forecast, WeatherEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -59,7 +59,7 @@ class WeatherAverageEntity(WeatherEntity):
     _attr_native_wind_speed_unit = "km/h"
     _attr_native_wind_gust_speed_unit = "km/h"
     _attr_native_visibility_unit = "km"
-    _attr_supported_features = 0  # sera mis à jour après le premier fetch
+    _attr_supported_features = WeatherEntityFeature.FORECAST_DAILY
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, sources: list[str]):
         self.hass = hass
