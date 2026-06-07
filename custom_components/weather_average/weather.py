@@ -20,6 +20,7 @@ from . import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 FORECAST_DAILY_INTERVAL = timedelta(minutes=25)
+FORECAST_HOURLY_INTERVAL = timedelta(minutes=2)
 
 CONDITION_PRIORITY = [
     "sunny",
@@ -59,7 +60,7 @@ class WeatherAverageEntity(WeatherEntity):
     _attr_native_wind_speed_unit = "km/h"
     _attr_native_wind_gust_speed_unit = "km/h"
     _attr_native_visibility_unit = "km"
-    _attr_supported_features = WeatherEntityFeature.FORECAST_DAILY
+    _attr_supported_features = WeatherEntityFeature.FORECAST_DAILY | WeatherEntityFeature.FORECAST_HOURLY
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, sources: list[str]):
         self.hass = hass
@@ -79,6 +80,7 @@ class WeatherAverageEntity(WeatherEntity):
         self._attr_native_dew_point = None
         self._attr_native_apparent_temperature = None
         self._daily_forecast: list[Forecast] = []
+        self._hourly_forecast: list[Forecast] = []
         self._update()
 
     async def async_added_to_hass(self) -> None:
@@ -99,8 +101,17 @@ class WeatherAverageEntity(WeatherEntity):
                 FORECAST_DAILY_INTERVAL,
             )
         )
+        # Hourly forecast: poll every 2 minutes (for testing)
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._handle_hourly_forecast_update,
+                FORECAST_HOURLY_INTERVAL,
+            )
+        )
         # Initial forecast fetch
         await self._async_update_forecasts()
+        await self._async_update_hourly_forecasts()
 
     @callback
     def _handle_source_update(self, event) -> None:
@@ -109,8 +120,13 @@ class WeatherAverageEntity(WeatherEntity):
         self.async_write_ha_state()
 
     async def _handle_forecast_update(self, _now=None) -> None:
-        """Called by the time interval tracker."""
+        """Called by the daily time interval tracker."""
         await self._async_update_forecasts()
+        self.async_write_ha_state()
+
+    async def _handle_hourly_forecast_update(self, _now=None) -> None:
+        """Called by the hourly time interval tracker."""
+        await self._async_update_hourly_forecasts()
         self.async_write_ha_state()
 
     # ── Static helpers ────────────────────────────────────────────────────────
@@ -312,3 +328,83 @@ class WeatherAverageEntity(WeatherEntity):
     async def async_forecast_daily(self) -> list[Forecast] | None:
         """Return the aggregated daily forecast."""
         return self._daily_forecast or None
+
+    async def _async_update_hourly_forecasts(self) -> None:
+        """Fetch and aggregate hourly forecasts from all sources."""
+        all_forecasts: list[list[dict]] = []
+
+        for entity_id in self._sources:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ("unavailable", "unknown"):
+                continue
+            try:
+                response = await self.hass.services.async_call(
+                    "weather",
+                    "get_forecasts",
+                    {"entity_id": entity_id, "type": "hourly"},
+                    blocking=True,
+                    return_response=True,
+                )
+                forecasts = response.get(entity_id, {}).get("forecast", [])
+                if forecasts:
+                    all_forecasts.append(forecasts)
+            except Exception as err:
+                _LOGGER.debug("Could not get hourly forecast from %s: %s", entity_id, err)
+
+        if not all_forecasts:
+            _LOGGER.warning("No hourly forecasts available from any source.")
+            self._hourly_forecast = []
+            return
+
+        # Align slots by hour (YYYY-MM-DDTHH) and aggregate
+        slots: dict[str, dict[str, list]] = {}
+
+        for source_forecasts in all_forecasts:
+            for slot in source_forecasts:
+                raw_dt = slot.get("datetime", "")
+                hour_key = raw_dt[:13]  # Keep YYYY-MM-DDTHH
+                if not hour_key:
+                    continue
+                if hour_key not in slots:
+                    slots[hour_key] = {
+                        "temperature": [],
+                        "humidity": [],
+                        "precipitation": [],
+                        "precipitation_probability": [],
+                        "wind_speed": [],
+                        "wind_bearing": [],
+                        "condition": [],
+                    }
+                s = slots[hour_key]
+                s["temperature"].append(slot.get("temperature"))
+                s["humidity"].append(slot.get("humidity"))
+                s["precipitation"].append(slot.get("precipitation"))
+                s["precipitation_probability"].append(slot.get("precipitation_probability"))
+                s["wind_speed"].append(slot.get("wind_speed"))
+                bearing = slot.get("wind_bearing")
+                s["wind_bearing"].append(float(bearing) if bearing is not None else None)
+                cond = slot.get("condition")
+                s["condition"].append(cond if cond in CONDITION_PRIORITY else None)
+
+        result: list[Forecast] = []
+        for hour_key in sorted(slots.keys()):
+            s = slots[hour_key]
+            result.append(
+                Forecast(
+                    datetime=f"{hour_key}:00:00+00:00",
+                    condition=self._majority_vote(s["condition"]),
+                    native_temperature=self._median(s["temperature"]),
+                    humidity=self._median(s["humidity"]),
+                    native_precipitation=self._median(s["precipitation"]),
+                    precipitation_probability=self._median(s["precipitation_probability"]),
+                    native_wind_speed=self._median(s["wind_speed"]),
+                    wind_bearing=self._circular_avg(s["wind_bearing"]),
+                )
+            )
+
+        self._hourly_forecast = result
+        _LOGGER.debug("Hourly forecast updated: %d slots aggregated.", len(result))
+
+    async def async_forecast_hourly(self) -> list[Forecast] | None:
+        """Return the aggregated hourly forecast."""
+        return self._hourly_forecast or None
