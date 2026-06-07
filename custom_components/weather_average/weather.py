@@ -4,15 +4,22 @@ from __future__ import annotations
 import logging
 import math
 import statistics
-from homeassistant.components.weather import WeatherEntity
+from datetime import timedelta
+
+from homeassistant.components.weather import WeatherEntity, Forecast
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_time_interval,
+)
 
 from . import DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+FORECAST_DAILY_INTERVAL = timedelta(minutes=25)
 
 CONDITION_PRIORITY = [
     "sunny",
@@ -52,6 +59,7 @@ class WeatherAverageEntity(WeatherEntity):
     _attr_native_wind_speed_unit = "km/h"
     _attr_native_wind_gust_speed_unit = "km/h"
     _attr_native_visibility_unit = "km"
+    _attr_supported_features = 0  # sera mis à jour après le premier fetch
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, sources: list[str]):
         self.hass = hass
@@ -70,10 +78,12 @@ class WeatherAverageEntity(WeatherEntity):
         self._attr_native_visibility = None
         self._attr_native_dew_point = None
         self._attr_native_apparent_temperature = None
+        self._daily_forecast: list[Forecast] = []
         self._update()
 
     async def async_added_to_hass(self) -> None:
-        """Start listening to source entity state changes."""
+        """Start listening to source entity state changes and schedule forecast refresh."""
+        # Current values: reactive on state changes
         self.async_on_remove(
             async_track_state_change_event(
                 self.hass,
@@ -81,6 +91,16 @@ class WeatherAverageEntity(WeatherEntity):
                 self._handle_source_update,
             )
         )
+        # Daily forecast: poll every 25 minutes
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._handle_forecast_update,
+                FORECAST_DAILY_INTERVAL,
+            )
+        )
+        # Initial forecast fetch
+        await self._async_update_forecasts()
 
     @callback
     def _handle_source_update(self, event) -> None:
@@ -88,9 +108,16 @@ class WeatherAverageEntity(WeatherEntity):
         self._update()
         self.async_write_ha_state()
 
+    async def _handle_forecast_update(self, _now=None) -> None:
+        """Called by the time interval tracker."""
+        await self._async_update_forecasts()
+        self.async_write_ha_state()
+
+    # ── Static helpers ────────────────────────────────────────────────────────
+
     @staticmethod
     def _median(values: list) -> float | None:
-        """Compute median ignoring None values. More robust than average against outliers."""
+        """Compute median ignoring None values."""
         clean = [v for v in values if v is not None]
         if not clean:
             return None
@@ -140,18 +167,13 @@ class WeatherAverageEntity(WeatherEntity):
         e = 6.11 * (10 ** ((7.5 * dew_point) / (237.7 + dew_point)))
         return round(temp + 0.5555 * (e - 10), 1)
 
-    def _update(self) -> None:
-        """Recompute averaged values from all available sources."""
-        temps = []
-        humidities = []
-        pressures = []
-        wind_speeds = []
-        wind_gust_speeds = []
-        wind_bearings = []
-        cloud_coverages = []
-        visibilities = []
-        conditions = []
+    # ── Current values ────────────────────────────────────────────────────────
 
+    def _update(self) -> None:
+        """Recompute current values from all available sources."""
+        temps, humidities, pressures = [], [], []
+        wind_speeds, wind_gust_speeds, wind_bearings = [], [], []
+        cloud_coverages, visibilities, conditions = [], [], []
         available_count = 0
 
         for entity_id in self._sources:
@@ -159,7 +181,6 @@ class WeatherAverageEntity(WeatherEntity):
             if state is None or state.state in ("unavailable", "unknown"):
                 _LOGGER.debug("Source %s is unavailable, skipping.", entity_id)
                 continue
-
             available_count += 1
             attrs = state.attributes
             temps.append(attrs.get("temperature"))
@@ -188,31 +209,106 @@ class WeatherAverageEntity(WeatherEntity):
         self._attr_cloud_coverage = self._median(cloud_coverages)
         self._attr_native_visibility = self._median(visibilities)
         self._attr_condition = self._majority_vote(conditions)
-
         self._attr_native_dew_point = self._compute_dew_point(
-            self._attr_native_temperature,
-            self._attr_humidity,
+            self._attr_native_temperature, self._attr_humidity
         )
         self._attr_native_apparent_temperature = self._compute_apparent_temp(
-            self._attr_native_temperature,
-            self._attr_native_dew_point,
+            self._attr_native_temperature, self._attr_native_dew_point
         )
 
         _LOGGER.debug(
-            "Updated: temp=%s, apparent=%s, dew=%s, humidity=%s, pressure=%s, "
-            "wind=%s, bearing=%s, gust=%s, cloud=%s, visibility=%s, condition=%s "
-            "(%d/%d sources available)",
+            "Current updated: temp=%s, apparent=%s, condition=%s (%d/%d sources)",
             self._attr_native_temperature,
             self._attr_native_apparent_temperature,
-            self._attr_native_dew_point,
-            self._attr_humidity,
-            self._attr_native_pressure,
-            self._attr_native_wind_speed,
-            self._attr_wind_bearing,
-            self._attr_native_wind_gust_speed,
-            self._attr_cloud_coverage,
-            self._attr_native_visibility,
             self._attr_condition,
             available_count,
             len(self._sources),
         )
+
+    # ── Daily forecast ────────────────────────────────────────────────────────
+
+    async def _async_update_forecasts(self) -> None:
+        """Fetch and aggregate daily forecasts from all sources."""
+        # Collect forecasts per source
+        all_forecasts: list[list[dict]] = []
+
+        for entity_id in self._sources:
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ("unavailable", "unknown"):
+                continue
+            try:
+                response = await self.hass.services.async_call(
+                    "weather",
+                    "get_forecasts",
+                    {"entity_id": entity_id, "type": "daily"},
+                    blocking=True,
+                    return_response=True,
+                )
+                forecasts = response.get(entity_id, {}).get("forecast", [])
+                if forecasts:
+                    all_forecasts.append(forecasts)
+            except Exception as err:
+                _LOGGER.debug("Could not get daily forecast from %s: %s", entity_id, err)
+
+        if not all_forecasts:
+            _LOGGER.warning("No daily forecasts available from any source.")
+            self._daily_forecast = []
+            return
+
+        # Align slots by date (YYYY-MM-DD) and aggregate
+        slots: dict[str, dict[str, list]] = {}
+
+        for source_forecasts in all_forecasts:
+            for slot in source_forecasts:
+                # Normalize date key — datetime can be "2025-06-07T00:00:00+00:00" or just a date
+                raw_date = slot.get("datetime", "")
+                date_key = raw_date[:10]  # Keep only YYYY-MM-DD
+                if not date_key:
+                    continue
+                if date_key not in slots:
+                    slots[date_key] = {
+                        "templow": [],
+                        "temperature": [],
+                        "humidity": [],
+                        "precipitation": [],
+                        "precipitation_probability": [],
+                        "wind_speed": [],
+                        "wind_bearing": [],
+                        "condition": [],
+                    }
+                s = slots[date_key]
+                s["templow"].append(slot.get("templow"))
+                s["temperature"].append(slot.get("temperature"))
+                s["humidity"].append(slot.get("humidity"))
+                s["precipitation"].append(slot.get("precipitation"))
+                s["precipitation_probability"].append(slot.get("precipitation_probability"))
+                s["wind_speed"].append(slot.get("wind_speed"))
+                bearing = slot.get("wind_bearing")
+                s["wind_bearing"].append(float(bearing) if bearing is not None else None)
+                cond = slot.get("condition")
+                s["condition"].append(cond if cond in CONDITION_PRIORITY else None)
+
+        # Build aggregated forecast list, sorted by date
+        result: list[Forecast] = []
+        for date_key in sorted(slots.keys()):
+            s = slots[date_key]
+            result.append(
+                Forecast(
+                    datetime=f"{date_key}T00:00:00+00:00",
+                    condition=self._majority_vote(s["condition"]),
+                    native_temperature=self._median(s["temperature"]),
+                    native_templow=self._median(s["templow"]),
+                    humidity=self._median(s["humidity"]),
+                    native_precipitation=self._median(s["precipitation"]),
+                    precipitation_probability=self._median(s["precipitation_probability"]),
+                    native_wind_speed=self._median(s["wind_speed"]),
+                    wind_bearing=self._circular_avg(s["wind_bearing"]),
+                )
+            )
+
+        self._daily_forecast = result
+        _LOGGER.debug("Daily forecast updated: %d slots aggregated.", len(result))
+
+    async def async_forecast_daily(self) -> list[Forecast] | None:
+        """Return the aggregated daily forecast."""
+        return self._daily_forecast or None
