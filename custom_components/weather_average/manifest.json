@@ -1,7 +1,7 @@
 {
   "domain": "weather_average",
   "name": "Weather Average",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "config_flow": true,
   "dependencies": [],
   "requirements": [],

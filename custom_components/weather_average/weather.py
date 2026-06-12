@@ -10,6 +10,7 @@ from homeassistant.components.weather import WeatherEntity, Forecast, WeatherEnt
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+import homeassistant.util.dt as dt_util
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
@@ -326,8 +327,10 @@ class WeatherAverageEntity(WeatherEntity):
         _LOGGER.debug("Daily forecast updated: %d slots aggregated.", len(result))
 
     async def async_forecast_daily(self) -> list[Forecast] | None:
-        """Return the aggregated daily forecast."""
-        return self._daily_forecast or None
+        """Return the aggregated daily forecast, excluding past dates."""
+        today = dt_util.now().date().isoformat()
+        filtered = [f for f in self._daily_forecast if f["datetime"][:10] >= today]
+        return filtered or None
 
     async def _async_update_hourly_forecasts(self) -> None:
         """Fetch and aggregate hourly forecasts from all sources."""
