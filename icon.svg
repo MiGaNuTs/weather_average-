@@ -1,0 +1,25 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <circle cx="128" cy="128" r="120" fill="#E8F4FD"/>
+  <circle cx="128" cy="128" r="120" fill="none" stroke="#B8D9F0" stroke-width="1"/>
+
+  <line x1="128" y1="18"  x2="128" y2="38"  stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
+  <line x1="128" y1="218" x2="128" y2="238" stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
+  <line x1="18"  y1="128" x2="38"  y2="128" stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
+  <line x1="218" y1="128" x2="238" y2="128" stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
+  <line x1="46"  y1="46"  x2="60"  y2="60"  stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
+  <line x1="196" y1="46"  x2="182" y2="60"  stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
+  <line x1="46"  y1="210" x2="60"  y2="196" stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
+  <line x1="196" y1="210" x2="182" y2="196" stroke="#F5A623" stroke-width="5" stroke-linecap="round"/>
+
+  <circle cx="112" cy="108" r="44" fill="#F5A623"/>
+  <circle cx="112" cy="108" r="36" fill="#FFB830"/>
+
+  <ellipse cx="148" cy="162" rx="56" ry="30" fill="white" stroke="#C8DFF0" stroke-width="1.5"/>
+  <ellipse cx="108" cy="170" rx="34" ry="23" fill="white" stroke="#C8DFF0" stroke-width="1.5"/>
+  <ellipse cx="184" cy="170" rx="30" ry="21" fill="white" stroke="#C8DFF0" stroke-width="1.5"/>
+  <ellipse cx="134" cy="142" rx="32" ry="26" fill="white" stroke="#C8DFF0" stroke-width="1.5"/>
+  <ellipse cx="166" cy="150" rx="26" ry="22" fill="white" stroke="#C8DFF0" stroke-width="1.5"/>
+  <ellipse cx="148" cy="165" rx="52" ry="24" fill="white"/>
+
+  <text x="146" y="174" text-anchor="middle" font-family="Georgia, serif" font-size="30" font-weight="700" fill="#3A7DC9" opacity="0.9">Σ</text>
+</svg>

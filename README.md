@@ -4,32 +4,30 @@ A Home Assistant custom component that aggregates multiple `weather.*` entities 
 
 ## How it works
 
-Instead of blindly averaging values from all sources, Weather Average uses **median aggregation** for numerical values. The median is more robust than the average — if one source goes haywire and reports 50°C, it gets pushed to the edge of the distribution and doesn't affect the result. With 5+ sources, the median gives a very stable and representative value.
+Instead of blindly averaging values, Weather Average uses robust statistical methods for each type of data:
 
 | Data | Method | Why |
 |---|---|---|
-| Temperature, humidity, pressure, wind speed, etc. | **Median** | Resistant to outliers from misbehaving sources |
+| Temperature, humidity, pressure, wind speed, etc. | **Median** | Resistant to outliers — one bad source won't skew the result |
 | Wind bearing | **Circular average** | Angles can't be medianed naively (350° and 10° should give 0°, not 180°) |
-| Condition (sunny, cloudy, rainy…) | **Majority vote** | Most frequent condition wins; ties broken in favor of the most optimistic |
+| Condition (sunny, cloudy, rainy…) | **Majority vote** | Most frequent condition wins; ties broken in favor of the most severe |
 | Dew point | **Calculated** | Derived from median temp + median humidity via Magnus formula |
 | Apparent temperature | **Calculated** | Derived from median temp + calculated dew point via Steadman formula |
+
+Forecast aggregation (daily and hourly) uses the same methods, aligning slots by date/hour across all sources.
 
 ## Features
 
 - Automatically discovers all available `weather.*` entities in your HA instance
 - Median aggregation for all numerical values — robust against outliers
 - Circular average for wind bearing
-- Majority vote for weather condition (optimistic tiebreaker)
+- Majority vote for weather condition (conservative tiebreaker — most severe wins)
+- Daily and hourly forecast aggregation
 - Dew point and apparent (feels-like) temperature calculated from aggregated values
 - Skips unavailable sources gracefully — excluded from aggregation, no crash
 - Reactive: updates instantly when any source changes state
 - Add/remove sources at any time via the UI (Options flow)
 - Compatible with HACS
-
-## Roadmap
-
-- `forecast` aggregation (daily/hourly)
-- Per-source weighting
 
 ## Installation
 
@@ -55,9 +53,10 @@ To add or remove sources later: **Settings → Devices & Services → Weather Av
 
 ## Tips
 
-- More sources = more stable results. 4-6 sources is a good sweet spot.
+- More sources = more stable results. 4–6 sources is a good sweet spot.
 - Mix sources from different providers and different underlying weather models for best results (e.g. Met.no + Météo-France + Open-Meteo + OpenWeatherMap + Tomorrow.io + AccuWeather).
 - The median approach means one bad source won't ruin your data — but it won't help either. Prefer quality sources over quantity.
+- The condition tiebreaker favors the most severe condition (e.g. rainy beats partlycloudy in a tie) — better to bring an umbrella you didn't need than the reverse.
 
 ## Requirements
 
