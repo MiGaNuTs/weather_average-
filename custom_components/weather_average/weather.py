@@ -277,9 +277,12 @@ class WeatherAverageEntity(WeatherEntity):
 
         for source_forecasts in all_forecasts:
             for slot in source_forecasts:
-                # Normalize date key — datetime can be "2025-06-07T00:00:00+00:00" or just a date
+                # Normalize date key — datetime can be a string or a datetime.datetime object
                 raw_date = slot.get("datetime", "")
-                date_key = raw_date[:10]  # Keep only YYYY-MM-DD
+                if hasattr(raw_date, "date"):
+                    date_key = raw_date.date().isoformat()
+                else:
+                    date_key = str(raw_date)[:10]
                 if not date_key:
                     continue
                 if date_key not in slots:
@@ -365,7 +368,10 @@ class WeatherAverageEntity(WeatherEntity):
         for source_forecasts in all_forecasts:
             for slot in source_forecasts:
                 raw_dt = slot.get("datetime", "")
-                hour_key = raw_dt[:13]  # Keep YYYY-MM-DDTHH
+                if hasattr(raw_dt, "strftime"):
+                    hour_key = raw_dt.strftime("%Y-%m-%dT%H")
+                else:
+                    hour_key = str(raw_dt)[:13]  # Keep YYYY-MM-DDTHH
                 if not hour_key:
                     continue
                 if hour_key not in slots:
