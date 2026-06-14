@@ -24,21 +24,21 @@ FORECAST_DAILY_INTERVAL = timedelta(minutes=25)
 FORECAST_HOURLY_INTERVAL = timedelta(minutes=2)
 
 CONDITION_PRIORITY = [
-    "sunny",
-    "clear-night",
-    "partlycloudy",
-    "windy-variant",
-    "windy",
-    "fog",
-    "cloudy",
-    "hail",
-    "snowy",
-    "snowy-rainy",
-    "rainy",
-    "pouring",
-    "lightning",
-    "lightning-rainy",
     "exceptional",
+    "lightning-rainy",
+    "lightning",
+    "pouring",
+    "rainy",
+    "snowy-rainy",
+    "snowy",
+    "hail",
+    "cloudy",
+    "fog",
+    "windy",
+    "windy-variant",
+    "partlycloudy",
+    "clear-night",
+    "sunny",
 ]
 
 
